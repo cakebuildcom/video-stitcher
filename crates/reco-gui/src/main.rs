@@ -1332,12 +1332,14 @@ fn main() -> anyhow::Result<()> {
 
         if let Some(left) = left_path {
             s.left_path = Some(left.clone());
+            s.left_input = Some(reco_io::stitch_job::InputPath::Single(left.clone()));
             app.set_left_path(left.to_string_lossy().to_string().into());
             log::info!("Auto-loaded left video: {}", left.display());
         }
 
         if let Some(right) = right_path {
             s.right_path = Some(right.clone());
+            s.right_input = Some(reco_io::stitch_job::InputPath::Single(right.clone()));
             app.set_right_path(right.to_string_lossy().to_string().into());
             log::info!("Auto-loaded right video: {}", right.display());
         }
@@ -1346,6 +1348,10 @@ fn main() -> anyhow::Result<()> {
             // Trigger auto-calibration or load default calibration
             app.set_files_loaded(true);
         }
+
+        // Update UI segments to display the loaded files in the Files panel
+        drop(s);
+        sync_segments(&state.borrow(), &app);
     }
 
     // Initialize opt-in telemetry if the user enabled it.
