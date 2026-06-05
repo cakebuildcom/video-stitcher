@@ -508,6 +508,8 @@ export component RecoApp inherits Window {
     callback submit-bug-report(string, string, bool);
     in-out property <bool> bug-dialog-open: false;
     in-out property <string> bug-user-contact: "";
+    in-out property <bool> roi-editor-open: false;
+    callback save-roi-from-editor(string);
     callback show-in-folder(string);
     callback toggle-recording(string, string);
     callback pick-recording-folder();
@@ -970,7 +972,7 @@ export component RecoApp inherits Window {
                             Button {
                                 text: root.has-roi ? "Edit outline..." : "Draw outline...";
                                 horizontal-stretch: 1;
-                                clicked => { root.launch-roi-editor(); }
+                                clicked => { root.roi-editor-open = true; }
                             }
                             Button {
                                 text: "Paste JSON";
@@ -2469,6 +2471,153 @@ export component RecoApp inherits Window {
                         Button {
                             text: "Close";
                             clicked => { root.lens-picker-open = false; }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Field Outline Editor (modal dialog) ──
+        if root.roi-editor-open: Rectangle {
+            background: root.bg-scrim;
+            TouchArea { clicked => { root.roi-editor-open = false; } }
+
+            Rectangle {
+                width: min(parent.width - 40px, 1000px);
+                height: min(parent.height - 60px, 800px);
+                background: root.bg-surface;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: root.border-mid;
+
+                TouchArea {}
+
+                VerticalBox {
+                    padding: 24px;
+                    spacing: 14px;
+
+                    Text {
+                        text: "Draw Field Outline";
+                        color: #fff;
+                        font-size: 18px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: "Click on each preview to define polygon vertices. Magnify to see details better.";
+                        color: root.text-secondary;
+                        font-size: 11px;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: "Magnification:";
+                            color: root.text-secondary;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+                        Slider {
+                            width: 150px;
+                            minimum: 1.0;
+                            maximum: 4.0;
+                            value: 1.0;
+                        }
+                        Text {
+                            text: "1.0x";
+                            color: root.text-muted;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        height: 300px;
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            horizontal-stretch: 1;
+
+                            Text {
+                                text: "Left Camera";
+                                color: #8ae68a;
+                                font-size: 12px;
+                                font-weight: 600;
+                            }
+
+                            Rectangle {
+                                background: root.bg-preview;
+                                border-radius: 4px;
+                                border-width: 1px;
+                                border-color: root.border-subtle;
+                                horizontal-stretch: 1;
+                                vertical-stretch: 1;
+
+                                Text {
+                                    text: "[Left preview - click to add points]";
+                                    color: root.text-muted;
+                                    font-size: 10px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            HorizontalBox {
+                                spacing: 4px;
+                                Button { text: "Clear"; }
+                                Button { text: "Undo"; }
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            horizontal-stretch: 1;
+
+                            Text {
+                                text: "Right Camera";
+                                color: #8ae68a;
+                                font-size: 12px;
+                                font-weight: 600;
+                            }
+
+                            Rectangle {
+                                background: root.bg-preview;
+                                border-radius: 4px;
+                                border-width: 1px;
+                                border-color: root.border-subtle;
+                                horizontal-stretch: 1;
+                                vertical-stretch: 1;
+
+                                Text {
+                                    text: "[Right preview - click to add points]";
+                                    color: root.text-muted;
+                                    font-size: 10px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            HorizontalBox {
+                                spacing: 4px;
+                                Button { text: "Clear"; }
+                                Button { text: "Undo"; }
+                            }
+                        }
+                    }
+
+                    HorizontalBox {
+                        spacing: 8px;
+                        Button {
+                            text: "Cancel";
+                            clicked => { root.roi-editor-open = false; }
+                        }
+                        Button {
+                            text: "Apply";
+                            primary: true;
+                            clicked => { root.save-roi-from-editor("{}"); }
                         }
                     }
                 }
