@@ -1302,6 +1302,79 @@ fn find_default_calibration() -> Option<PathBuf> {
     None
 }
 
+/// Extract the first frame from a video file as a PNG and load it as a Slint Image.
+fn extract_video_frame_to_image(video_path: &PathBuf) -> Option<slint::Image> {
+    use std::process::Command;
+    use std::fs;
+
+    let temp_dir = std::env::temp_dir();
+    let frame_name = format!(
+        "reco_frame_{}.png",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+    let output_path = temp_dir.join(&frame_name);
+
+    // Use ffmpeg to extract first frame
+    let output = Command::new("ffmpeg")
+        .args(&[
+            "-i",
+            &video_path.to_string_lossy(),
+            "-vframes",
+            "1",
+            "-f",
+            "image2",
+            "-y",
+            &output_path.to_string_lossy(),
+        ])
+        .output();
+
+    match output {
+        Ok(output) if output.status.success() => {
+            // Try to load the PNG as a Slint Image
+            if let Ok(data) = fs::read(&output_path) {
+                let _ = fs::remove_file(&output_path);
+                match image::load_from_memory(&data) {
+                    Ok(img) => {
+                        let rgba_img = img.to_rgba8();
+                        let width = rgba_img.width();
+                        let height = rgba_img.height();
+                        let pixels = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                            &rgba_img,
+                            width,
+                            height,
+                        );
+                        Some(slint::Image::from_rgba8(pixels))
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to decode frame PNG: {}", e);
+                        let _ = fs::remove_file(&output_path);
+                        None
+                    }
+                }
+            } else {
+                log::warn!("Failed to read extracted frame file");
+                let _ = fs::remove_file(&output_path);
+                None
+            }
+        }
+        Ok(output) => {
+            log::warn!(
+                "ffmpeg frame extraction failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let _ = fs::remove_file(&output_path);
+            None
+        }
+        Err(e) => {
+            log::warn!("Failed to run ffmpeg: {}", e);
+            None
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     init_tracing();
     install_panic_hook();
@@ -1402,6 +1475,14 @@ fn main() -> anyhow::Result<()> {
     {
         let s = state.borrow();
         app.set_dark_mode(s.user_settings.dark_mode);
+
+        // Populate export preset names dropdown
+        let preset_names = s.user_settings.preset_names();
+        let names_model: Vec<slint::SharedString> = preset_names
+            .iter()
+            .map(|name| slint::SharedString::from(name.as_str()))
+            .collect();
+        app.set_export_preset_names(slint::ModelRc::new(slint::VecModel::from(names_model)));
     }
 
     // Check for updates in the background.
@@ -2133,6 +2214,27 @@ fn main() -> anyhow::Result<()> {
 
     let app_weak = app.as_weak();
     let state_ref = Rc::clone(&state);
+    app.on_load_roi_previews(move || {
+        let Some(app_ref) = app_weak.upgrade() else {
+            return;
+        };
+        let s = state_ref.borrow();
+
+        if let Some(left_path) = &s.left_path {
+            if let Some(img) = extract_video_frame_to_image(left_path) {
+                app_ref.set_roi_left_preview(img);
+            }
+        }
+
+        if let Some(right_path) = &s.right_path {
+            if let Some(img) = extract_video_frame_to_image(right_path) {
+                app_ref.set_roi_right_preview(img);
+            }
+        }
+    });
+
+    let app_weak = app.as_weak();
+    let state_ref = Rc::clone(&state);
     app.on_save_roi_from_editor(move |roi_json| {
         let mut s = state_ref.borrow_mut();
 
@@ -2176,6 +2278,87 @@ fn main() -> anyhow::Result<()> {
             );
             crate::toast::sync_to_ui(&s.toasts, &app);
         }
+    });
+
+    let app_weak = app.as_weak();
+    let state_ref = Rc::clone(&state);
+    app.on_save_export_preset(move |preset_name| {
+        let Some(app_ref) = app_weak.upgrade() else {
+            return;
+        };
+        let s = state_ref.borrow();
+
+        let preset = crate::settings::ExportPreset {
+            width: app_ref.get_export_width() as u32,
+            height: app_ref.get_export_height() as u32,
+            codec: app_ref.get_export_codec().to_string(),
+            quality: app_ref.get_export_quality().to_string(),
+            blend_width: app_ref.get_export_blend_width(),
+            detection_interval: app_ref.get_export_detection_interval() as u32,
+            tracking_mode: app_ref.get_export_tracking_mode().to_string(),
+            autocam_enabled: app_ref.get_export_autocam_enabled(),
+            rig_tilt: app_ref.get_rig_tilt(),
+        };
+
+        let mut settings = s.user_settings.clone();
+        settings.save_preset(preset_name.to_string(), preset);
+        drop(s);
+
+        let app_weak_update = app_ref.as_weak();
+        let mut s_update = state_ref.borrow_mut();
+        s_update.user_settings = settings.clone();
+        if let Some(app) = app_weak_update.upgrade() {
+            let names = settings.preset_names();
+            let names_model: Vec<slint::SharedString> = names
+                .iter()
+                .map(|s| slint::SharedString::from(s.as_str()))
+                .collect();
+            app.set_export_preset_names(slint::ModelRc::new(slint::VecModel::from(names_model)));
+            app.set_export_preset_name_input("".into());
+        }
+    });
+
+    let app_weak = app.as_weak();
+    let state_ref = Rc::clone(&state);
+    app.on_load_export_preset(move |preset_name| {
+        let Some(app_ref) = app_weak.upgrade() else {
+            return;
+        };
+        let s = state_ref.borrow();
+        let preset_name_str = preset_name.to_string();
+
+        if let Some(preset) = s.user_settings.load_preset(&preset_name_str) {
+            drop(s);
+            app_ref.set_export_width(preset.width as i32);
+            app_ref.set_export_height(preset.height as i32);
+            app_ref.set_export_codec(preset.codec.into());
+            app_ref.set_export_quality(preset.quality.into());
+            app_ref.set_export_blend_width(preset.blend_width);
+            app_ref.set_export_detection_interval(preset.detection_interval as i32);
+            app_ref.set_export_tracking_mode(preset.tracking_mode.into());
+            app_ref.set_export_autocam_enabled(preset.autocam_enabled);
+            app_ref.set_rig_tilt(preset.rig_tilt);
+
+            let mut s_update = state_ref.borrow_mut();
+            s_update.user_settings.active_preset = Some(preset_name_str);
+        }
+    });
+
+    let app_weak = app.as_weak();
+    let state_ref = Rc::clone(&state);
+    app.on_delete_export_preset(move |preset_name| {
+        let Some(app_ref) = app_weak.upgrade() else {
+            return;
+        };
+        let mut s = state_ref.borrow_mut();
+
+        s.user_settings.delete_preset(&preset_name.to_string());
+        let names = s.user_settings.preset_names();
+        let names_model: Vec<slint::SharedString> = names
+            .iter()
+            .map(|s| slint::SharedString::from(s.as_str()))
+            .collect();
+        app_ref.set_export_preset_names(slint::ModelRc::new(slint::VecModel::from(names_model)));
     });
 
     let app_weak = app.as_weak();
@@ -3196,6 +3379,27 @@ fn main() -> anyhow::Result<()> {
             if app.get_export_end_secs() == 0.0 {
                 app.set_export_end_secs(clip_secs);
             }
+
+            // Generate default output path in app/video folder with auto-numbering
+            let app_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let video_dir = app_dir.join("video");
+            if !video_dir.exists() {
+                let _ = std::fs::create_dir(&video_dir);
+            }
+
+            let mut counter = 1;
+            let default_output = loop {
+                let candidate = video_dir.join(format!("video{counter:03}.mp4"));
+                if !candidate.exists() {
+                    break candidate;
+                }
+                counter += 1;
+            };
+            app.set_export_output_path(default_output.to_string_lossy().to_string().into());
+
             app.set_export_dialog_open(true);
         }
     });
@@ -3460,17 +3664,48 @@ fn main() -> anyhow::Result<()> {
             .clone()
             .unwrap_or(reco_io::stitch_job::InputPath::Single(right_path));
 
-        let width = app.get_export_width() as u32;
-        let height = app.get_export_height() as u32;
-        let codec_str = app.get_export_codec().to_string();
-        let quality_str = app.get_export_quality().to_string();
-        let blend = app.get_export_blend_width();
-        // Enable AI tracking by default for quick export
-        let autocam_enabled = true;
+        // Load preset if one is selected, otherwise use current settings
+        let (width, height, codec_str, quality_str, blend, autocam_enabled, tracking_mode, detection_interval) =
+            if let Some(preset_name) = &s.user_settings.active_preset {
+                if let Some(preset) = s.user_settings.load_preset(preset_name) {
+                    log::info!("Loading export preset: {}", preset_name);
+                    (
+                        preset.width,
+                        preset.height,
+                        preset.codec,
+                        preset.quality,
+                        preset.blend_width,
+                        preset.autocam_enabled,
+                        preset.tracking_mode,
+                        preset.detection_interval,
+                    )
+                } else {
+                    log::warn!("Preset '{}' not found, using current settings", preset_name);
+                    (
+                        app.get_export_width() as u32,
+                        app.get_export_height() as u32,
+                        app.get_export_codec().to_string(),
+                        app.get_export_quality().to_string(),
+                        app.get_export_blend_width(),
+                        true,
+                        "lacrosse-refs".to_string(),
+                        3u32,
+                    )
+                }
+            } else {
+                // No preset selected, use current UI settings with VEO defaults
+                (
+                    app.get_export_width() as u32,
+                    app.get_export_height() as u32,
+                    app.get_export_codec().to_string(),
+                    app.get_export_quality().to_string(),
+                    app.get_export_blend_width(),
+                    true,
+                    "lacrosse-refs".to_string(),
+                    3u32,
+                )
+            };
         let model_path = app.get_export_model_path().to_string();
-        // Default to lacrosse-refs mode (refs frame the entire field, more reliable than players)
-        let tracking_mode = "lacrosse-refs".to_string();
-        let detection_interval = 3u32; // Default to 3 frames for smooth tracking
 
         // Persist defaults
         s.user_settings.default_codec = codec_str.clone();

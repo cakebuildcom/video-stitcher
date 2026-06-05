@@ -11,10 +11,25 @@
 //! wants its own persisted defaults it would define a separate
 //! `CliSettings` struct in its own crate and use the `"cli"` namespace.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use reco_io::settings::RecentFiles;
 use serde::{Deserialize, Serialize};
+
+/// Named export preset containing all user-configurable export settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportPreset {
+    pub width: u32,
+    pub height: u32,
+    pub codec: String,
+    pub quality: String,
+    pub blend_width: f32,
+    pub detection_interval: u32,
+    pub tracking_mode: String,
+    pub autocam_enabled: bool,
+    pub rig_tilt: f32,
+}
 
 /// Reco-gui's on-disk settings. Stored at `<config>/reco/gui.json`.
 ///
@@ -96,6 +111,14 @@ pub struct GuiSettings {
     /// Enable AI tracking by default.
     #[serde(default = "default_autocam_enabled")]
     pub default_autocam_enabled: bool,
+
+    /// Named export presets for quick save/load of full export configs.
+    #[serde(default)]
+    pub export_presets: HashMap<String, ExportPreset>,
+
+    /// Currently selected export preset name (used by VEO button).
+    #[serde(default)]
+    pub active_preset: Option<String>,
 }
 
 fn default_dark_mode() -> bool {
@@ -144,6 +167,8 @@ impl Default for GuiSettings {
             dark_mode: true,
             default_tracking_mode: default_tracking_mode(),
             default_autocam_enabled: default_autocam_enabled(),
+            export_presets: HashMap::new(),
+            active_preset: None,
         }
     }
 }
@@ -185,6 +210,34 @@ impl GuiSettings {
     /// Convenience: push a newly-loaded calibration file into MRU and save.
     pub fn push_calibration(&mut self, path: PathBuf) {
         self.recent_calibration.push(path);
+        self.save();
+    }
+
+    /// Save an export preset with the given name.
+    pub fn save_preset(&mut self, name: String, preset: ExportPreset) {
+        self.export_presets.insert(name.clone(), preset);
+        self.active_preset = Some(name);
+        self.save();
+    }
+
+    /// Load an export preset by name, returning None if not found.
+    pub fn load_preset(&self, name: &str) -> Option<ExportPreset> {
+        self.export_presets.get(name).cloned()
+    }
+
+    /// Get all preset names as a vector.
+    pub fn preset_names(&self) -> Vec<String> {
+        let mut names: Vec<_> = self.export_presets.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    /// Delete a preset by name.
+    pub fn delete_preset(&mut self, name: &str) {
+        self.export_presets.remove(name);
+        if self.active_preset.as_deref() == Some(name) {
+            self.active_preset = None;
+        }
         self.save();
     }
 }
