@@ -2133,6 +2133,53 @@ fn main() -> anyhow::Result<()> {
 
     let app_weak = app.as_weak();
     let state_ref = Rc::clone(&state);
+    app.on_save_roi_from_editor(move |roi_json| {
+        let mut s = state_ref.borrow_mut();
+
+        // Parse the ROI JSON from the editor
+        let roi: reco_core::calibration::FieldRoi = match serde_json::from_str(&roi_json) {
+            Ok(r) => r,
+            Err(e) => {
+                log::warn!("Invalid ROI JSON from editor: {e}");
+                if let Some(app) = app_weak.upgrade() {
+                    s.toasts.push(
+                        crate::toast::Severity::Error,
+                        "Save Outline",
+                        "Invalid ROI JSON generated. Please try again.",
+                    );
+                    crate::toast::sync_to_ui(&s.toasts, &app);
+                }
+                return;
+            }
+        };
+
+        let left_points = roi.left.len();
+        let right_points = roi.right.len();
+        let point_count = left_points + right_points;
+
+        if let Some(cal) = s.calibration.as_mut() {
+            cal.field_roi = Some(roi);
+        }
+        if let Err(e) = s.save_calibration() {
+            log::error!("Failed to save calibration with ROI: {e}");
+        }
+
+        if let Some(app) = app_weak.upgrade() {
+            let has = point_count > 0;
+            app.set_has_roi(has);
+            app.set_roi_editor_open(false);
+            sync_roi_points(&s, &app);
+            s.toasts.push(
+                crate::toast::Severity::Info,
+                "Field Outline Saved",
+                format!("Left: {} points, Right: {} points", left_points, right_points),
+            );
+            crate::toast::sync_to_ui(&s.toasts, &app);
+        }
+    });
+
+    let app_weak = app.as_weak();
+    let state_ref = Rc::clone(&state);
     app.on_remove_left_segment(move |idx| {
         let mut s = state_ref.borrow_mut();
         let removed = match s.left_input {
