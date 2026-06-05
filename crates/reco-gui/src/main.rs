@@ -1220,37 +1220,48 @@ fn install_panic_hook() {
 
 /// Search for left.mp4 and right.mp4 files in common locations.
 fn find_default_videos() -> (Option<PathBuf>, Option<PathBuf>) {
-    let search_dirs = vec![
+    let mut search_dirs = vec![
         std::env::current_dir().ok(),
         std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|d| d.to_path_buf())),
-        std::env::current_dir()
-            .ok()
-            .map(|d| d.join("video")),
     ];
+
+    // Add video subfolder
+    if let Ok(cwd) = std::env::current_dir() {
+        search_dirs.push(Some(cwd.join("video")));
+    }
 
     let mut left: Option<PathBuf> = None;
     let mut right: Option<PathBuf> = None;
 
     for dir in search_dirs.iter().flatten() {
+        log::debug!("Searching for videos in: {}", dir.display());
+
         if left.is_none() {
             let left_path = dir.join("left.mp4");
             if left_path.exists() && left_path.is_file() {
-                log::info!("Found left.mp4: {}", left_path.display());
+                log::info!("✓ Found left.mp4: {}", left_path.display());
                 left = Some(left_path);
             }
         }
         if right.is_none() {
             let right_path = dir.join("right.mp4");
             if right_path.exists() && right_path.is_file() {
-                log::info!("Found right.mp4: {}", right_path.display());
+                log::info!("✓ Found right.mp4: {}", right_path.display());
                 right = Some(right_path);
             }
         }
         if left.is_some() && right.is_some() {
             break;
         }
+    }
+
+    if left.is_none() {
+        log::info!("Auto-detection: left.mp4 not found");
+    }
+    if right.is_none() {
+        log::info!("Auto-detection: right.mp4 not found");
     }
 
     (left, right)
@@ -1359,7 +1370,7 @@ fn main() -> anyhow::Result<()> {
 
     let build_num = env!("BUILD_NUMBER");
     let version = format!(
-        "v{}*{}{}",
+        "v{}.{}{}",
         env!("CARGO_PKG_VERSION"),
         build_num,
         option_env!("GIT_HASH")
