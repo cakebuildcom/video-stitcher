@@ -7,6 +7,16 @@
 
 Stitch two camera feeds into a seamless panoramic sports view with AI-powered automatic camera control. No subscriptions, no vendor lock-in. Ships as a CLI, a Slint-based desktop app, and an OBS Studio source plugin that all consume the same Rust engine.
 
+## Fork-Specific Enhancements
+
+This fork adds specialized features for lacrosse videography and streamlined one-click export workflows:
+
+- **VEO One-Click Export** - Green button for instant export with optimized defaults. Auto-detects video files and calibration, generates auto-incrementing filenames (video001.mp4, video002.mp4, etc.), and applies lacrosse-specific AI tracking settings.
+- **Lacrosse Ref-Based Tracking** - Tracks red-shirted referees instead of the ball (unreliably small) or player positions (inconsistent). Refs are positioned by official rules to frame the entire field, never get substituted mid-game, and provide stable camera control targets.
+- **Lookahead Prediction** - Uses historical ref positions to predict where they'll be next, enabling smooth pre-framing before action arrives.
+- **Build Version Display** - Auto-incrementing version number (v0.5.2*NN) in the top toolbar that increments with each GUI recompile for easy build identification.
+- **Auto-Detection & Persistence** - Automatically finds left.mp4, right.mp4, and calibration files; persists export settings across sessions for faster workflows.
+
 ## Features
 
 - **GPU-first pipeline** - Real-time stitching via wgpu 28 (Vulkan / Metal / DX12), 500+ fps on modern desktop GPUs
