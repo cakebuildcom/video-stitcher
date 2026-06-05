@@ -90,11 +90,6 @@ const POSE_SMOOTHING: f32 = 0.25;
 /// saturates the GPU with hundreds of pending reinits.
 const SEEK_DEBOUNCE_MS: u64 = 120;
 
-fn get_version_string() -> String {
-    let build_num = env!("BUILD_NUMBER");
-    format!("v0.5.2*{}", build_num)
-}
-
 /// Calibration payload sent from the background worker: the computed
 /// match calibration plus the lens profile info each side resolved to,
 /// so the GUI can tell the user "we auto-detected GoPro HERO10 Linear 4K"
@@ -1305,7 +1300,6 @@ fn main() -> anyhow::Result<()> {
         .select()?;
 
     let app = RecoApp::new()?;
-    app.set_version(get_version_string().into());
     let state = Rc::new(RefCell::new(AppState::new()));
 
     // Auto-detect left.mp4 and right.mp4 files on startup
@@ -1363,9 +1357,11 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    let build_num = env!("BUILD_NUMBER");
     let version = format!(
-        "v{}{}",
+        "v{}*{}{}",
         env!("CARGO_PKG_VERSION"),
+        build_num,
         option_env!("GIT_HASH")
             .filter(|h| !h.is_empty())
             .map(|h| format!(" ({h})"))
