@@ -1220,48 +1220,60 @@ fn install_panic_hook() {
 
 /// Search for left.mp4 and right.mp4 files in common locations.
 fn find_default_videos() -> (Option<PathBuf>, Option<PathBuf>) {
-    let mut search_dirs = vec![
-        std::env::current_dir().ok(),
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf())),
-    ];
+    log::info!("🎬 Starting video auto-detection...");
 
-    // Add video subfolder
+    let mut search_dirs = vec![];
+
+    // Current working directory
     if let Ok(cwd) = std::env::current_dir() {
+        log::info!("  📁 CWD: {}", cwd.display());
+        search_dirs.push(Some(cwd.clone()));
         search_dirs.push(Some(cwd.join("video")));
+    }
+
+    // App executable directory (where reco-gui.exe is)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            log::info!("  📁 EXE dir: {}", exe_dir.display());
+            search_dirs.push(Some(exe_dir.to_path_buf()));
+        }
     }
 
     let mut left: Option<PathBuf> = None;
     let mut right: Option<PathBuf> = None;
 
-    for dir in search_dirs.iter().flatten() {
-        log::debug!("Searching for videos in: {}", dir.display());
+    for (i, dir_opt) in search_dirs.iter().enumerate() {
+        if let Some(dir) = dir_opt {
+            log::info!("  🔍 [{i}] Checking: {}", dir.display());
 
-        if left.is_none() {
-            let left_path = dir.join("left.mp4");
-            if left_path.exists() && left_path.is_file() {
-                log::info!("✓ Found left.mp4: {}", left_path.display());
-                left = Some(left_path);
+            if left.is_none() {
+                let left_path = dir.join("left.mp4");
+                if left_path.exists() && left_path.is_file() {
+                    log::info!("    ✅ Found left.mp4!");
+                    left = Some(left_path);
+                }
             }
-        }
-        if right.is_none() {
-            let right_path = dir.join("right.mp4");
-            if right_path.exists() && right_path.is_file() {
-                log::info!("✓ Found right.mp4: {}", right_path.display());
-                right = Some(right_path);
+
+            if right.is_none() {
+                let right_path = dir.join("right.mp4");
+                if right_path.exists() && right_path.is_file() {
+                    log::info!("    ✅ Found right.mp4!");
+                    right = Some(right_path);
+                }
             }
-        }
-        if left.is_some() && right.is_some() {
-            break;
+
+            if left.is_some() && right.is_some() {
+                log::info!("✅ Both videos found!");
+                break;
+            }
         }
     }
 
     if left.is_none() {
-        log::info!("Auto-detection: left.mp4 not found");
+        log::warn!("❌ left.mp4 not found");
     }
     if right.is_none() {
-        log::info!("Auto-detection: right.mp4 not found");
+        log::warn!("❌ right.mp4 not found");
     }
 
     (left, right)
