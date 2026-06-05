@@ -481,6 +481,30 @@ pub fn setup_autocam(
         // Pre-tracker flicker rejection: class-keyed bucketed-spatial
         // histogram that drops recurrent static mimics (line
         match tracking_mode {
+            TrackingMode::Lacrosse => {
+                let player_tracker = crate::trackers::PlayerTracker::new(person_id);
+                log::info!(
+                    "Tracking mode: lacrosse-players (PlayerTracker + LacrossePanner, \
+                     player_class={person_id}, no ball tracking)"
+                );
+
+                target.set_player_tracker(Box::new(player_tracker));
+
+                let lacrosse_panner = crate::panners::LacrossePanner::new(fps);
+                target.set_panner(Box::new(lacrosse_panner));
+            }
+            TrackingMode::LacrosseRefs => {
+                let player_tracker = crate::trackers::PlayerTracker::new(person_id);
+                log::info!(
+                    "Tracking mode: lacrosse-refs (PlayerTracker + RefDirector, \
+                     player_class={person_id}, lookahead-framing)"
+                );
+
+                target.set_player_tracker(Box::new(player_tracker));
+
+                let ref_director = crate::panners::RefDirector::new(fps);
+                target.set_panner(Box::new(ref_director));
+            }
             TrackingMode::Field => {
                 let player_tracker = crate::trackers::PlayerTracker::new(person_id);
                 let ball_tracker =

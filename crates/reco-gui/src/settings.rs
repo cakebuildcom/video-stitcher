@@ -87,9 +87,26 @@ pub struct GuiSettings {
     /// Dark mode preference. Default true.
     #[serde(default = "default_dark_mode")]
     pub dark_mode: bool,
+
+    /// Default tracking mode (`"field"`, `"ball"`, `"lacrosse"`, `"sweep"`).
+    /// Used as the default when opening export dialog.
+    #[serde(default = "default_tracking_mode")]
+    pub default_tracking_mode: String,
+
+    /// Enable AI tracking by default.
+    #[serde(default = "default_autocam_enabled")]
+    pub default_autocam_enabled: bool,
 }
 
 fn default_dark_mode() -> bool {
+    true
+}
+
+fn default_tracking_mode() -> String {
+    "lacrosse".into()
+}
+
+fn default_autocam_enabled() -> bool {
     true
 }
 
@@ -125,6 +142,8 @@ impl Default for GuiSettings {
             telemetry_enabled: false,
             telemetry_client_id: None,
             dark_mode: true,
+            default_tracking_mode: default_tracking_mode(),
+            default_autocam_enabled: default_autocam_enabled(),
         }
     }
 }

@@ -5,16 +5,22 @@
 //! [`ViewportPosition`](reco_core::detect::director::ViewportPosition).
 //!
 //! - [`field`] - [`FieldPanner`], Huber-robust player cluster with ball blend and dynamic FOV.
+//! - [`lacrosse`] - [`LacrossePanner`], density-based zone tracking for lacrosse.
+//! - [`ref_director`] - [`RefDirector`], lacrosse ref-based framing with lookahead.
 //! - [`lookahead`] - [`LookaheadPanner`], future-aware panner (pre-smooth -> blend -> EMA).
 //! - [`file_panner`] - [`FilePanner`], replays precomputed trajectory from CSV.
 //! - [`sweep`] - [`SweepPanner`], deterministic debug pan.
 
 pub mod field;
 pub mod file_panner;
+pub mod lacrosse;
 pub mod lookahead;
+pub mod ref_director;
 pub mod sweep;
 
 pub use field::{FieldPanner, FieldPannerConfig};
 pub use file_panner::FilePanner;
+pub use lacrosse::{LacrossePanner, LacrossePannerConfig};
 pub use lookahead::{LookaheadPanner, LookaheadPannerConfig};
+pub use ref_director::{RefDirector, RefDirectorConfig};
 pub use sweep::SweepPanner;

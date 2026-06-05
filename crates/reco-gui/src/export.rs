@@ -233,7 +233,10 @@ pub fn run_export(
         job = job.on_session(move |session, source| {
             let info = source.info();
             let mode = match mode_str_owned.as_str() {
+                "lacrosse-refs" => reco_autocam::TrackingMode::LacrosseRefs,
+                "lacrosse" => reco_autocam::TrackingMode::Lacrosse,
                 "sweep" => reco_autocam::TrackingMode::Sweep,
+                "ball" => reco_autocam::TrackingMode::Ball,
                 _ => reco_autocam::TrackingMode::Field,
             };
             let is_10bit =

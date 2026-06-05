@@ -13,6 +13,19 @@ pub enum TrackingMode {
     /// Ball influence is controlled by `FieldPannerConfig::ball_weight`.
     #[default]
     Field,
+    /// Lacrosse-specific tracking: pan to the densest player zone
+    /// (left/center/right thirds of panorama).
+    /// Uses [`PlayerTracker`](crate::trackers::PlayerTracker) and
+    /// [`LacrossePanner`](crate::panners::LacrossePanner).
+    /// No ball tracking — follows player density instead.
+    Lacrosse,
+    /// Lacrosse-specific tracking: pan to frame the refs (red-shirted officials).
+    /// Uses [`PlayerTracker`](crate::trackers::PlayerTracker) and
+    /// [`RefDirector`](crate::panners::RefDirector).
+    /// Refs are positioned by rules to watch the entire field, so their
+    /// positions indicate action zones. Includes lookahead prediction
+    /// for smooth pre-framing.
+    LacrosseRefs,
     /// Ball-only tracking for single-class ball detectors. No player
     /// tracker, no cluster centroid. Uses only
     /// [`BallTracker`](crate::trackers::BallTracker) with higher

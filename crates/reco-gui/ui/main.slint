@@ -504,6 +504,7 @@ export component RecoApp inherits Window {
     callback pick-export-model();
     callback start-export();
     callback cancel-export();
+    callback quick-export-video();
     callback submit-bug-report(string, string, bool);
     in-out property <bool> bug-dialog-open: false;
     in-out property <string> bug-user-contact: "";
@@ -620,6 +621,17 @@ export component RecoApp inherits Window {
                     enabled: root.files-loaded && !root.export-in-progress;
                     primary: true;
                     clicked => { root.open-export-dialog(); }
+                }
+
+                Rectangle {
+                    background: root.files-loaded && !root.export-in-progress ? #4CAF50 : #888;
+                    border-radius: 4px;
+
+                    Button {
+                        text: "VEO";
+                        enabled: root.files-loaded && !root.export-in-progress;
+                        clicked => { root.quick-export-video(); }
+                    }
                 }
 
             }
@@ -2280,11 +2292,17 @@ export component RecoApp inherits Window {
                                 horizontal-stretch: 1;
                                 Text { text: "Tracking mode"; color: #ccc; font-size: 12px; }
                                 ComboBox {
-                                    model: ["ball", "field", "sweep"];
+                                    model: ["ball", "field", "Lacrosse - Players", "Lacrosse - Refs", "sweep"];
                                     current-index: root.export-tracking-mode == "field" ? 1
-                                                 : root.export-tracking-mode == "sweep" ? 2
+                                                 : root.export-tracking-mode == "lacrosse" ? 2
+                                                 : root.export-tracking-mode == "lacrosse-refs" ? 3
+                                                 : root.export-tracking-mode == "sweep" ? 4
                                                  : 0;
-                                    selected(v) => { root.export-tracking-mode = v; }
+                                    selected(v) => {
+                                        root.export-tracking-mode = v == "Lacrosse - Players" ? "lacrosse"
+                                                                  : v == "Lacrosse - Refs" ? "lacrosse-refs"
+                                                                  : v;
+                                    }
                                 }
                             }
 

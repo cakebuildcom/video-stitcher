@@ -1218,6 +1218,67 @@ fn install_panic_hook() {
     }));
 }
 
+/// Search for left.mp4 and right.mp4 files in common locations.
+fn find_default_videos() -> (Option<PathBuf>, Option<PathBuf>) {
+    let search_dirs = vec![
+        std::env::current_dir().ok(),
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf())),
+        std::env::current_dir()
+            .ok()
+            .map(|d| d.join("video")),
+    ];
+
+    let mut left: Option<PathBuf> = None;
+    let mut right: Option<PathBuf> = None;
+
+    for dir in search_dirs.iter().flatten() {
+        if left.is_none() {
+            let left_path = dir.join("left.mp4");
+            if left_path.exists() && left_path.is_file() {
+                log::info!("Found left.mp4: {}", left_path.display());
+                left = Some(left_path);
+            }
+        }
+        if right.is_none() {
+            let right_path = dir.join("right.mp4");
+            if right_path.exists() && right_path.is_file() {
+                log::info!("Found right.mp4: {}", right_path.display());
+                right = Some(right_path);
+            }
+        }
+        if left.is_some() && right.is_some() {
+            break;
+        }
+    }
+
+    (left, right)
+}
+
+fn find_default_calibration() -> Option<PathBuf> {
+    let search_dirs = vec![
+        std::env::current_dir().ok(),
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf())),
+    ];
+
+    let cal_names = vec!["match.json", "calibration.json", "left_calibration.json"];
+
+    for dir in search_dirs.iter().flatten() {
+        for name in &cal_names {
+            let cal_path = dir.join(name);
+            if cal_path.exists() && cal_path.is_file() {
+                log::info!("Found calibration: {}", cal_path.display());
+                return Some(cal_path);
+            }
+        }
+    }
+
+    None
+}
+
 fn main() -> anyhow::Result<()> {
     init_tracing();
     install_panic_hook();
@@ -1240,6 +1301,29 @@ fn main() -> anyhow::Result<()> {
 
     let app = RecoApp::new()?;
     let state = Rc::new(RefCell::new(AppState::new()));
+
+    // Auto-detect left.mp4 and right.mp4 files on startup
+    {
+        let (left_path, right_path) = find_default_videos();
+        let mut s = state.borrow_mut();
+
+        if let Some(left) = left_path {
+            s.left_path = Some(left.clone());
+            app.set_left_path(left.to_string_lossy().to_string().into());
+            log::info!("Auto-loaded left video: {}", left.display());
+        }
+
+        if let Some(right) = right_path {
+            s.right_path = Some(right.clone());
+            app.set_right_path(right.to_string_lossy().to_string().into());
+            log::info!("Auto-loaded right video: {}", right.display());
+        }
+
+        if s.left_path.is_some() && s.right_path.is_some() {
+            // Trigger auto-calibration or load default calibration
+            app.set_files_loaded(true);
+        }
+    }
 
     // Initialize opt-in telemetry if the user enabled it.
     {
@@ -3020,6 +3104,8 @@ fn main() -> anyhow::Result<()> {
             // choices across sessions...
             app.set_export_codec(s.user_settings.default_codec.clone().into());
             app.set_export_quality(s.user_settings.default_quality.clone().into());
+            app.set_export_tracking_mode(s.user_settings.default_tracking_mode.clone().into());
+            app.set_export_autocam_enabled(s.user_settings.default_autocam_enabled);
             if let Some(model_path) = s.user_settings.ai_model_path.as_ref() {
                 app.set_export_model_path(model_path.to_string_lossy().to_string().into());
             }
@@ -3149,13 +3235,15 @@ fn main() -> anyhow::Result<()> {
             None
         };
 
-        // Persist the user's codec / quality / blend choices as the
-        // defaults for next session. Model path is saved in the
+        // Persist the user's codec / quality / blend / tracking-mode / autocam choices
+        // as the defaults for next session. Model path is saved in the
         // on_pick_export_model callback so it sticks even if the user
         // never actually hits Start. Save is best-effort.
         s.user_settings.default_codec = codec_str.clone();
         s.user_settings.default_quality = quality_str.clone();
         s.user_settings.default_blend_width = blend;
+        s.user_settings.default_tracking_mode = tracking_mode.clone();
+        s.user_settings.default_autocam_enabled = autocam_enabled;
         s.user_settings.save();
 
         // Reset cancel flag, start a fresh channel for completion.
@@ -3220,6 +3308,145 @@ fn main() -> anyhow::Result<()> {
         let s = state_ref.borrow();
         log::info!("Cancel requested");
         s.export_interrupted.store(true, Ordering::Relaxed);
+    });
+
+    let state_ref = Rc::clone(&state);
+    let app_weak = app.as_weak();
+    app.on_quick_export_video(move || {
+        let Some(app) = app_weak.upgrade() else {
+            return;
+        };
+        // Generate output path automatically: same directory as left video, timestamp-based filename
+        let mut s = state_ref.borrow_mut();
+
+        // Auto-detect calibration if not already loaded
+        let left_path = s.left_path.clone();
+        let right_path = s.right_path.clone();
+        let mut cal = s.calibration.clone();
+
+        if cal.is_none() {
+            if let Some(cal_path) = find_default_calibration() {
+                if let Ok(cal_data) = std::fs::read_to_string(&cal_path) {
+                    if let Ok(calibration) = serde_json::from_str(&cal_data) {
+                        log::info!("Auto-loaded calibration: {}", cal_path.display());
+                        cal = Some(calibration);
+                        s.calibration = cal.clone();
+                        app.set_calibration_path(cal_path.to_string_lossy().to_string().into());
+                    }
+                }
+            }
+        }
+
+        let (Some(left_path), Some(right_path), Some(cal)) = (left_path, right_path, cal) else {
+            log::error!("Cannot quick-export without left/right/calibration");
+            app.set_export_error_text("Missing left/right video or calibration".into());
+            return;
+        };
+
+        // Use app directory / video folder with auto-incrementing filenames
+        let app_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+        let video_dir = app_dir.join("video");
+        if !video_dir.exists() {
+            let _ = std::fs::create_dir(&video_dir);
+        }
+
+        // Find next available filename (video001.mp4, video002.mp4, etc.)
+        let mut counter = 1;
+        let output = loop {
+            let candidate = video_dir.join(format!("video{counter:03}.mp4"));
+            if !candidate.exists() {
+                break candidate;
+            }
+            counter += 1;
+        };
+
+        let output_str = output.to_string_lossy().to_string();
+
+        log::info!("Quick export requested: output={output_str}");
+        if s.export_thread.is_some() {
+            log::warn!("Export already running, ignoring quick-export request");
+            return;
+        }
+
+        // Use current export settings
+        let left = s
+            .left_input
+            .clone()
+            .unwrap_or(reco_io::stitch_job::InputPath::Single(left_path));
+        let right = s
+            .right_input
+            .clone()
+            .unwrap_or(reco_io::stitch_job::InputPath::Single(right_path));
+
+        let width = app.get_export_width() as u32;
+        let height = app.get_export_height() as u32;
+        let codec_str = app.get_export_codec().to_string();
+        let quality_str = app.get_export_quality().to_string();
+        let blend = app.get_export_blend_width();
+        // Enable AI tracking by default for quick export
+        let autocam_enabled = true;
+        let model_path = app.get_export_model_path().to_string();
+        // Default to lacrosse-refs mode (refs frame the entire field, more reliable than players)
+        let tracking_mode = "lacrosse-refs".to_string();
+        let detection_interval = 3u32; // Default to 3 frames for smooth tracking
+
+        // Persist defaults
+        s.user_settings.default_codec = codec_str.clone();
+        s.user_settings.default_quality = quality_str.clone();
+        s.user_settings.default_blend_width = blend;
+        s.user_settings.default_tracking_mode = tracking_mode.clone();
+        s.user_settings.default_autocam_enabled = autocam_enabled;
+        s.user_settings.save();
+
+        s.export_interrupted.store(false, Ordering::Relaxed);
+        let (tx, rx) = std::sync::mpsc::channel();
+        s.export_rx = Some(rx);
+        *s.export_last_progress_at.lock().unwrap() = None;
+        let last_progress_at = Arc::clone(&s.export_last_progress_at);
+
+        s.playback.pause();
+        app.set_playing(false);
+
+        let interrupted = Arc::clone(&s.export_interrupted);
+        let app_weak_clone = app.as_weak();
+
+        std::thread::spawn(move || {
+            let outcome = crate::export::run_export(
+                left,
+                right,
+                cal,
+                output.clone(),
+                None,
+                false,
+                None,
+                width,
+                height,
+                codec_str,
+                quality_str,
+                blend,
+                0.0,
+                0.0,
+                autocam_enabled,
+                model_path,
+                tracking_mode,
+                detection_interval,
+                app_weak_clone,
+                &interrupted,
+                last_progress_at,
+            );
+            let _ = tx.send(outcome);
+        });
+
+        app.set_export_in_progress(true);
+        app.set_export_progress(0.0);
+        app.set_export_frames_done(0);
+        app.set_export_frames_total(0);
+        app.set_export_status_text("Exporting video…".into());
+        app.set_export_error_text("".into());
     });
 
     let state_ref = Rc::clone(&state);
