@@ -316,7 +316,7 @@ export component RecoApp inherits Window {
     in-out property <string> ai-status: "AI: unknown";
     in-out property <bool> ai-available: false;
 
-    in-out property <string> version: "";
+    in-out property <string> version: "v0.5.2*00";
     in-out property <string> last-output-path: "";
 
     // Lens profile info. Populated after auto-calibration so the user
@@ -602,6 +602,13 @@ export component RecoApp inherits Window {
                 Button {
                     text: root.files-panel-open ? "◀ Files" : "Files ▶";
                     clicked => { root.files-panel-open = !root.files-panel-open; }
+                }
+
+                Text {
+                    text: root.version;
+                    color: #777;
+                    font-size: 11px;
+                    vertical-alignment: center;
                 }
 
                 if root.calibrating: Text {

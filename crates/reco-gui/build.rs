@@ -12,4 +12,17 @@ fn main() {
         }
     }
     println!("cargo:rerun-if-changed=../../.git/HEAD");
+
+    // Increment and read build number
+    let build_number_file = std::path::Path::new(".build_number");
+    let mut build_number: u32 = 3; // Start at 03
+
+    if let Ok(content) = std::fs::read_to_string(build_number_file) {
+        if let Ok(num) = content.trim().parse::<u32>() {
+            build_number = num + 1;
+        }
+    }
+
+    let _ = std::fs::write(build_number_file, format!("{}", build_number));
+    println!("cargo:rustc-env=BUILD_NUMBER={:02}", build_number);
 }
