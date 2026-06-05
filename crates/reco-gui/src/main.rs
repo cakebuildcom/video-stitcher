@@ -2214,6 +2214,41 @@ fn main() -> anyhow::Result<()> {
 
     let app_weak = app.as_weak();
     let state_ref = Rc::clone(&state);
+    app.on_roi_click(move |side, norm_x, norm_y| {
+        let Some(app_ref) = app_weak.upgrade() else {
+            return;
+        };
+        let mut s = state_ref.borrow_mut();
+
+        // Parse current state
+        let mut roi_state: serde_json::Value = serde_json::from_str(&app_ref.get_roi_editor_state().to_string())
+            .unwrap_or_else(|_| serde_json::json!({"left": [], "right": []}));
+
+        let side_str = if side == "left" { "left" } else { "right" };
+
+        // Handle clear (negative coordinates)
+        if norm_x < 0.0 || norm_y < 0.0 {
+            if let Some(arr) = roi_state[side_str].as_array_mut() {
+                arr.clear();
+            }
+        } else {
+            // Add point (clamped to 0-1 range)
+            let x = norm_x.max(0.0).min(1.0);
+            let y = norm_y.max(0.0).min(1.0);
+            if let Some(arr) = roi_state[side_str].as_array_mut() {
+                // Don't exceed 4 corners
+                if arr.len() < 4 {
+                    arr.push(serde_json::json!([x, y]));
+                }
+            }
+        }
+
+        let state_json = serde_json::to_string(&roi_state).unwrap_or_default();
+        app_ref.set_roi_editor_state(state_json.into());
+    });
+
+    let app_weak = app.as_weak();
+    let state_ref = Rc::clone(&state);
     app.on_load_roi_previews(move || {
         let Some(app_ref) = app_weak.upgrade() else {
             return;
