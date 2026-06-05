@@ -951,13 +951,13 @@ export component RecoApp inherits Window {
                             clicked => { root.save-calibration(); }
                         }
 
-                        // Field ROI status
+                        // Field outline
                         if root.files-loaded: Rectangle { height: 1px; background: root.border-subtle; }
 
                         if root.files-loaded: HorizontalLayout {
                             spacing: 6px;
                             Text {
-                                text: root.has-roi ? "Field ROI: loaded" : "Field ROI: none";
+                                text: root.has-roi ? "Field outline: loaded" : "Field outline: none";
                                 color: root.has-roi ? #8ae68a : #777;
                                 font-size: 11px;
                                 vertical-alignment: center;
@@ -968,18 +968,18 @@ export component RecoApp inherits Window {
                         if root.files-loaded: HorizontalLayout {
                             spacing: 4px;
                             Button {
-                                text: root.has-roi ? "Edit ROI..." : "Set ROI...";
+                                text: root.has-roi ? "Edit outline..." : "Draw outline...";
                                 horizontal-stretch: 1;
                                 clicked => { root.launch-roi-editor(); }
                             }
                             Button {
-                                text: "Paste ROI";
+                                text: "Paste JSON";
                                 clicked => { root.paste-roi(); }
                             }
                         }
 
                         if root.files-loaded: LineEdit {
-                            placeholder-text: "Or paste ROI JSON here...";
+                            placeholder-text: "Or paste field outline JSON here...";
                             accepted(text) => {
                                 root.roi-manual-json = text;
                                 root.paste-roi();
@@ -987,7 +987,7 @@ export component RecoApp inherits Window {
                         }
 
                         if root.files-loaded && !root.has-roi: Text {
-                            text: "Draw in browser, Copy ROI, then Paste or type JSON above.";
+                            text: "Draw the field outline on the preview to define the ROI for ref-based tracking and cropping.";
                             color: root.text-dim;
                             font-size: 10px;
                             wrap: word-wrap;
