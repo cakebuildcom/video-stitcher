@@ -631,12 +631,12 @@ export component RecoApp inherits Window {
                 }
 
                 Rectangle {
-                    background: root.files-loaded && !root.export-in-progress ? #4CAF50 : #888;
+                    background: !root.export-in-progress ? #4CAF50 : #888;
                     border-radius: 4px;
 
                     Button {
                         text: "VEO";
-                        enabled: root.files-loaded && !root.export-in-progress;
+                        enabled: !root.export-in-progress;
                         clicked => { root.quick-export-video(); }
                     }
                 }
