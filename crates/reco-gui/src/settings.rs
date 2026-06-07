@@ -119,6 +119,22 @@ pub struct GuiSettings {
     /// Currently selected export preset name (used by VEO button).
     #[serde(default)]
     pub active_preset: Option<String>,
+
+    /// Default folder for loading video files (left.mp4, right.mp4).
+    #[serde(default)]
+    pub default_video_folder: Option<PathBuf>,
+
+    /// Default folder for saving export presets and configs.
+    #[serde(default)]
+    pub default_config_folder: Option<PathBuf>,
+
+    /// Default folder for exporting final videos.
+    #[serde(default)]
+    pub default_export_folder: Option<PathBuf>,
+
+    /// Default YOLO model name to use for detection (yolo26n.onnx, yolo26n_640.onnx, etc).
+    #[serde(default = "default_yolo_model")]
+    pub default_yolo_model: String,
 }
 
 fn default_dark_mode() -> bool {
@@ -145,6 +161,9 @@ fn default_blend_width() -> f32 {
 fn default_preview_aspect() -> String {
     "auto".into()
 }
+fn default_yolo_model() -> String {
+    "yolo26n.onnx".into()
+}
 
 impl Default for GuiSettings {
     fn default() -> Self {
@@ -169,6 +188,10 @@ impl Default for GuiSettings {
             default_autocam_enabled: default_autocam_enabled(),
             export_presets: HashMap::new(),
             active_preset: None,
+            default_video_folder: None,
+            default_config_folder: None,
+            default_export_folder: None,
+            default_yolo_model: default_yolo_model(),
         }
     }
 }

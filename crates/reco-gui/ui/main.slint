@@ -383,6 +383,10 @@ export component RecoApp inherits Window {
     in-out property <string> prefs-default-quality: "balanced";
     in-out property <float> prefs-default-blend-width: 0.05;
     in-out property <string> prefs-ai-model-path: "";
+    in-out property <string> prefs-default-video-folder: "";
+    in-out property <string> prefs-default-config-folder: "";
+    in-out property <string> prefs-default-export-folder: "";
+    in-out property <string> prefs-default-yolo-model: "yolo26n.onnx";
 
     // Toast notification list (Tier 3a).
     in-out property <[Toast]> toasts: [];
@@ -513,6 +517,9 @@ export component RecoApp inherits Window {
     callback open-prefs-dialog();
     callback save-prefs();
     callback pick-prefs-model();
+    callback pick-prefs-video-folder();
+    callback pick-prefs-config-folder();
+    callback pick-prefs-export-folder();
     callback open-website();
     callback open-forum();
     in-out property <bool> prefs-telemetry-enabled: false;
@@ -535,6 +542,13 @@ export component RecoApp inherits Window {
     callback load-roi-previews();
     callback save-roi-from-editor(string);
     callback roi-click(string, float, float);  // side ("left"/"right"), x, y in normalized coords
+
+    // YOLO detection page
+    in-out property <bool> detection-page-open: false;
+    in-out property <string> detection-video-source: "left";  // "left" or "right"
+    in-out property <string> detection-frame-interval: "30";
+    in-out property <string> detection-model-path: "";
+    callback start-yolo-detection(string, string, string);  // video_source, frame_interval, model_path
     callback show-in-folder(string);
     callback toggle-recording(string, string);
     callback pick-recording-folder();
@@ -649,6 +663,12 @@ export component RecoApp inherits Window {
 
                 Button { text: "?"; clicked => { root.shortcuts-dialog-open = true; } }
                 Button { text: "⚙"; clicked => { root.open-prefs-dialog(); } }
+
+                Button {
+                    text: "Tracking";
+                    enabled: root.files-loaded;
+                    clicked => { root.detection-page-open = true; }
+                }
 
                 Button {
                     text: "Export…";
@@ -1909,6 +1929,58 @@ export component RecoApp inherits Window {
 
                     Rectangle { height: 1px; background: root.border-subtle; }
 
+                    Text { text: "File Locations"; color: #ccc; font-size: 12px; font-weight: 600; }
+
+                    Text { text: "Default video folder"; color: #ccc; font-size: 12px; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        LineEdit {
+                            text <=> root.prefs-default-video-folder;
+                            placeholder-text: "Folder for left.mp4 and right.mp4";
+                            horizontal-stretch: 1;
+                        }
+                        Button {
+                            text: "Browse…";
+                            clicked => { root.pick-prefs-video-folder(); }
+                        }
+                    }
+
+                    Text { text: "Default config folder"; color: #ccc; font-size: 12px; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        LineEdit {
+                            text <=> root.prefs-default-config-folder;
+                            placeholder-text: "Folder for calibration and presets";
+                            horizontal-stretch: 1;
+                        }
+                        Button {
+                            text: "Browse…";
+                            clicked => { root.pick-prefs-config-folder(); }
+                        }
+                    }
+
+                    Text { text: "Default export folder"; color: #ccc; font-size: 12px; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        LineEdit {
+                            text <=> root.prefs-default-export-folder;
+                            placeholder-text: "Folder for output videos";
+                            horizontal-stretch: 1;
+                        }
+                        Button {
+                            text: "Browse…";
+                            clicked => { root.pick-prefs-export-folder(); }
+                        }
+                    }
+
+                    Text { text: "Default YOLO model"; color: #ccc; font-size: 12px; }
+                    LineEdit {
+                        text <=> root.prefs-default-yolo-model;
+                        placeholder-text: "yolo26n.onnx";
+                    }
+
+                    Rectangle { height: 1px; background: root.border-subtle; }
+
                     Text { text: "Recording defaults"; color: #ccc; font-size: 12px; font-weight: 600; }
 
                     HorizontalLayout {
@@ -2555,178 +2627,374 @@ export component RecoApp inherits Window {
             }
         }
 
-        // ── Full-Screen Field Outline Editor ──
-        if root.roi-editor-open: Rectangle {
-            background: #1a1a1a;
-            width: 100%;
-            height: 100%;
+    }  // close FocusScope key-scope
 
-            init => { root.load-roi-previews(); }
+    // ── Full-Screen Field Outline Editor (moved outside FocusScope to truly overlay) ──
+    if root.roi-editor-open: Rectangle {
+        background: #1a1a1a;
+        width: 100%;
+        height: 100%;
+        z: 100;
 
-            VerticalLayout {
-                spacing: 0;
-                padding: 0;
+        init => { root.load-roi-previews(); }
 
-                // Header
+        VerticalLayout {
+            spacing: 0;
+            padding: 0;
+
+            // Header
+            Rectangle {
+                background: root.bg-panel;
+                height: 60px;
+
                 Rectangle {
-                    background: root.bg-panel;
-                    height: 60px;
+                    background: root.border-subtle;
+                    height: 1px;
+                    width: 100%;
+                    y: parent.height - 1px;
+                }
 
-                    Rectangle {
-                        background: root.border-subtle;
-                        height: 1px;
-                        width: 100%;
-                        y: parent.height - 1px;
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    padding-top: 12px;
+                    padding-bottom: 12px;
+                    spacing: 20px;
+
+                    Text {
+                        text: "Define Field Outline - Click on preview to mark corners";
+                        color: #fff;
+                        font-size: 14px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
                     }
 
-                    HorizontalLayout {
-                        padding-left: 20px;
-                        padding-right: 20px;
-                        padding-top: 12px;
-                        padding-bottom: 12px;
-                        spacing: 20px;
+                    Button {
+                        text: "Cancel";
+                        width: 80px;
+                        clicked => { root.roi-editor-open = false; }
+                    }
+                    Button {
+                        text: "Apply";
+                        width: 80px;
+                        primary: true;
+                        clicked => { root.save-roi-from-editor(root.roi-editor-state); }
+                    }
+                }
+            }
 
-                        Text {
-                            text: "Define Field Outline - Click on preview to mark corners";
-                            color: #fff;
-                            font-size: 14px;
-                            font-weight: 600;
-                            vertical-alignment: center;
-                            horizontal-stretch: 1;
-                        }
+            // Main content
+            HorizontalLayout {
+                spacing: 20px;
+                padding: 20px;
+                vertical-stretch: 1;
 
-                        Button {
-                            text: "Cancel";
-                            width: 80px;
-                            clicked => { root.roi-editor-open = false; }
+                // Left camera
+                VerticalLayout {
+                    spacing: 8px;
+                    horizontal-stretch: 1;
+
+                    Text {
+                        text: "Left Camera";
+                        color: #8ae68a;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+
+                    Rectangle {
+                        background: #000;
+                        border-radius: 4px;
+                        border-width: 2px;
+                        border-color: root.border-mid;
+                        horizontal-stretch: 1;
+                        vertical-stretch: 1;
+
+                        left-area := Rectangle {
+                            if root.roi-left-preview.width > 0: Image {
+                                source: root.roi-left-preview;
+                                width: 100%;
+                                height: 100%;
+                            }
+
+                            if root.roi-left-preview.width == 0: Text {
+                                text: "Loading left preview...";
+                                color: #666;
+                                font-size: 14px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            left-touch := TouchArea {
+                                mouse-cursor: crosshair;
+                                clicked => {
+                                    let norm-x = left-touch.mouse-x / left-area.width;
+                                    let norm-y = left-touch.mouse-y / left-area.height;
+                                    root.roi-click("left", norm-x, norm-y);
+                                }
+                            }
                         }
+                    }
+
+                    HorizontalBox {
+                        spacing: 4px;
                         Button {
-                            text: "Apply";
-                            width: 80px;
-                            primary: true;
-                            clicked => { root.save-roi-from-editor(root.roi-editor-state); }
+                            text: "Clear";
+                            clicked => { root.roi-click("left", -1.0, -1.0); }
                         }
                     }
                 }
 
-                // Main content
-                HorizontalLayout {
-                    spacing: 20px;
-                    padding: 20px;
+                // Right camera
+                VerticalLayout {
+                    spacing: 8px;
+                    horizontal-stretch: 1;
 
-                    // Left camera
-                    VerticalLayout {
-                        spacing: 8px;
+                    Text {
+                        text: "Right Camera";
+                        color: #8ae68a;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+
+                    Rectangle {
+                        background: #000;
+                        border-radius: 4px;
+                        border-width: 2px;
+                        border-color: root.border-mid;
                         horizontal-stretch: 1;
+                        vertical-stretch: 1;
 
-                        Text {
-                            text: "Left Camera";
-                            color: #8ae68a;
-                            font-size: 12px;
-                            font-weight: 600;
-                        }
-
-                        Rectangle {
-                            background: #000;
-                            border-radius: 4px;
-                            border-width: 2px;
-                            border-color: root.border-mid;
-                            horizontal-stretch: 1;
-                            vertical-stretch: 1;
-
-                            left-area := Rectangle {
-                                if root.roi-left-preview.width > 0: Image {
-                                    source: root.roi-left-preview;
-                                    width: 100%;
-                                    height: 100%;
-                                }
-
-                                if root.roi-left-preview.width == 0: Text {
-                                    text: "Loading left preview...";
-                                    color: #666;
-                                    font-size: 14px;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-
-                                left-touch := TouchArea {
-                                    mouse-cursor: crosshair;
-                                    clicked => {
-                                        let norm-x = left-touch.mouse-x / left-area.width;
-                                        let norm-y = left-touch.mouse-y / left-area.height;
-                                        root.roi-click("left", norm-x, norm-y);
-                                    }
-                                }
+                        right-area := Rectangle {
+                            if root.roi-right-preview.width > 0: Image {
+                                source: root.roi-right-preview;
+                                width: 100%;
+                                height: 100%;
                             }
-                        }
 
-                        HorizontalBox {
-                            spacing: 4px;
-                            Button {
-                                text: "Clear";
-                                clicked => { root.roi-click("left", -1.0, -1.0); }
+                            if root.roi-right-preview.width == 0: Text {
+                                text: "Loading right preview...";
+                                color: #666;
+                                font-size: 14px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            right-touch := TouchArea {
+                                mouse-cursor: crosshair;
+                                clicked => {
+                                    let norm-x = right-touch.mouse-x / right-area.width;
+                                    let norm-y = right-touch.mouse-y / right-area.height;
+                                    root.roi-click("right", norm-x, norm-y);
+                                }
                             }
                         }
                     }
 
-                    // Right camera
-                    VerticalLayout {
-                        spacing: 8px;
-                        horizontal-stretch: 1;
-
-                        Text {
-                            text: "Right Camera";
-                            color: #8ae68a;
-                            font-size: 12px;
-                            font-weight: 600;
-                        }
-
-                        Rectangle {
-                            background: #000;
-                            border-radius: 4px;
-                            border-width: 2px;
-                            border-color: root.border-mid;
-                            horizontal-stretch: 1;
-                            vertical-stretch: 1;
-
-                            right-area := Rectangle {
-                                if root.roi-right-preview.width > 0: Image {
-                                    source: root.roi-right-preview;
-                                    width: 100%;
-                                    height: 100%;
-                                }
-
-                                if root.roi-right-preview.width == 0: Text {
-                                    text: "Loading right preview...";
-                                    color: #666;
-                                    font-size: 14px;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-
-                                right-touch := TouchArea {
-                                    mouse-cursor: crosshair;
-                                    clicked => {
-                                        let norm-x = right-touch.mouse-x / right-area.width;
-                                        let norm-y = right-touch.mouse-y / right-area.height;
-                                        root.roi-click("right", norm-x, norm-y);
-                                    }
-                                }
-                            }
-                        }
-
-                        HorizontalBox {
-                            spacing: 4px;
-                            Button {
-                                text: "Clear";
-                                clicked => { root.roi-click("right", -1.0, -1.0); }
-                            }
+                    HorizontalBox {
+                        spacing: 4px;
+                        Button {
+                            text: "Clear";
+                            clicked => { root.roi-click("right", -1.0, -1.0); }
                         }
                     }
                 }
             }
         }
-    }  // close FocusScope key-scope
+    }
+
+    // ── YOLO Detection Page ──
+    if root.detection-page-open: Rectangle {
+        background: #1a1a1a;
+        width: 100%;
+        height: 100%;
+        z: 100;
+
+        VerticalLayout {
+            spacing: 0;
+            padding: 0;
+
+            // Header
+            Rectangle {
+                background: root.bg-panel;
+                height: 60px;
+
+                Rectangle {
+                    background: root.border-subtle;
+                    height: 1px;
+                    width: 100%;
+                    y: parent.height - 1px;
+                }
+
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    padding-top: 12px;
+                    padding-bottom: 12px;
+                    spacing: 20px;
+
+                    Text {
+                        text: "AI Tracking - Detect Players & Refs";
+                        color: #fff;
+                        font-size: 14px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+
+                    Button {
+                        text: "Close";
+                        width: 80px;
+                        clicked => { root.detection-page-open = false; }
+                    }
+                }
+            }
+
+            // Settings panel
+            Rectangle {
+                background: #222;
+                height: 200px;
+
+                Rectangle {
+                    background: root.border-subtle;
+                    height: 1px;
+                    width: 100%;
+                    y: parent.height - 1px;
+                }
+
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 15px;
+
+                    Text {
+                        text: "Detection Settings";
+                        color: #fff;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 20px;
+
+                        VerticalLayout {
+                            spacing: 4px;
+                            Text {
+                                text: "Video Source:";
+                                color: #aaa;
+                                font-size: 11px;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Button {
+                                    text: "Left";
+                                    width: 60px;
+                                    checkable: true;
+                                    checked: root.detection-video-source == "left";
+                                    clicked => { root.detection-video-source = "left"; }
+                                }
+                                Button {
+                                    text: "Right";
+                                    width: 60px;
+                                    checkable: true;
+                                    checked: root.detection-video-source == "right";
+                                    clicked => { root.detection-video-source = "right"; }
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 4px;
+                            Text {
+                                text: "Frame Interval (every N frames):";
+                                color: #aaa;
+                                font-size: 11px;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                LineEdit {
+                                    text: root.detection-frame-interval;
+                                    width: 60px;
+                                }
+                                Text {
+                                    text: "(lower = more frames, slower)";
+                                    color: #666;
+                                    font-size: 10px;
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+
+                        Text {
+                            text: "YOLO Model:";
+                            color: #aaa;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+
+                        LineEdit {
+                            text: root.detection-model-path == "" ? "(default: yolov8n.pt)" : root.detection-model-path;
+                            width: 300px;
+                            edited(txt) => { root.detection-model-path = txt; }
+                        }
+
+                        Button {
+                            text: "Browse…";
+                            width: 80px;
+                            clicked => {
+                                // TODO: implement model picker
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Start button
+            Rectangle {
+                height: 50px;
+                background: transparent;
+
+                HorizontalLayout {
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    spacing: 10px;
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    Button {
+                        text: "Start Detection";
+                        primary: true;
+                        width: 150px;
+                        clicked => {
+                            root.start-yolo-detection(
+                                root.detection-video-source,
+                                root.detection-frame-interval,
+                                root.detection-model-path
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Status area
+            Rectangle {
+                background: #111;
+                vertical-stretch: 1;
+
+                Text {
+                    text: "Detection will filter people by your drawn ROI and cluster them for labeling.";
+                    color: #888;
+                    font-size: 12px;
+                    padding: 20px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
 
     // ── Toast stack (floating overlay, bottom-right) ──
     // Placed as a direct child of the Window (outside FocusScope and

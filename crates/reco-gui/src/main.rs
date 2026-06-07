@@ -15,6 +15,7 @@
 //! so reco-core renders stitched frames directly into Slint-owned
 //! textures with no CPU readback.
 
+mod detection;
 mod export;
 mod playback;
 mod preview;
@@ -2536,6 +2537,31 @@ fn main() -> anyhow::Result<()> {
                 .unwrap_or_default()
                 .into(),
         );
+        app.set_prefs_default_video_folder(
+            s.user_settings
+                .default_video_folder
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default()
+                .into(),
+        );
+        app.set_prefs_default_config_folder(
+            s.user_settings
+                .default_config_folder
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default()
+                .into(),
+        );
+        app.set_prefs_default_export_folder(
+            s.user_settings
+                .default_export_folder
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default()
+                .into(),
+        );
+        app.set_prefs_default_yolo_model(s.user_settings.default_yolo_model.clone().into());
         app.set_prefs_telemetry_enabled(s.user_settings.telemetry_enabled);
         app.set_prefs_dark_mode(s.user_settings.dark_mode);
         app.set_prefs_dialog_open(true);
@@ -2565,6 +2591,25 @@ fn main() -> anyhow::Result<()> {
         } else {
             Some(PathBuf::from(rec_folder))
         };
+        let video_folder = app.get_prefs_default_video_folder().to_string();
+        s.user_settings.default_video_folder = if video_folder.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(video_folder))
+        };
+        let config_folder = app.get_prefs_default_config_folder().to_string();
+        s.user_settings.default_config_folder = if config_folder.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(config_folder))
+        };
+        let export_folder = app.get_prefs_default_export_folder().to_string();
+        s.user_settings.default_export_folder = if export_folder.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(export_folder))
+        };
+        s.user_settings.default_yolo_model = app.get_prefs_default_yolo_model().to_string();
         let dark = app.get_prefs_dark_mode();
         s.user_settings.dark_mode = dark;
         app.set_dark_mode(dark);
@@ -2617,6 +2662,36 @@ fn main() -> anyhow::Result<()> {
             && let Some(app) = app_weak.upgrade()
         {
             app.set_recording_folder(folder.to_string_lossy().to_string().into());
+        }
+    });
+
+    let app_weak = app.as_weak();
+    app.on_pick_prefs_video_folder(move || {
+        let dialog = rfd::FileDialog::new().set_title("Select default video folder");
+        if let Some(folder) = dialog.pick_folder()
+            && let Some(app) = app_weak.upgrade()
+        {
+            app.set_prefs_default_video_folder(folder.to_string_lossy().to_string().into());
+        }
+    });
+
+    let app_weak = app.as_weak();
+    app.on_pick_prefs_config_folder(move || {
+        let dialog = rfd::FileDialog::new().set_title("Select default config folder");
+        if let Some(folder) = dialog.pick_folder()
+            && let Some(app) = app_weak.upgrade()
+        {
+            app.set_prefs_default_config_folder(folder.to_string_lossy().to_string().into());
+        }
+    });
+
+    let app_weak = app.as_weak();
+    app.on_pick_prefs_export_folder(move || {
+        let dialog = rfd::FileDialog::new().set_title("Select default export folder");
+        if let Some(folder) = dialog.pick_folder()
+            && let Some(app) = app_weak.upgrade()
+        {
+            app.set_prefs_default_export_folder(folder.to_string_lossy().to_string().into());
         }
     });
 
@@ -3522,15 +3597,15 @@ fn main() -> anyhow::Result<()> {
         let left = s
             .left_input
             .clone()
-            .unwrap_or(reco_io::stitch_job::InputPath::Single(left_path));
+            .unwrap_or(reco_io::stitch_job::InputPath::Single(left_path.clone()));
         let right = s
             .right_input
             .clone()
-            .unwrap_or(reco_io::stitch_job::InputPath::Single(right_path));
+            .unwrap_or(reco_io::stitch_job::InputPath::Single(right_path.clone()));
 
         // Snapshot all export settings. Slint properties must not be
         // read from the worker thread — only the UI thread owns them.
-        let output = PathBuf::from(output_str);
+        let output = output_path.clone();
         let width = app.get_export_width() as u32;
         let height = app.get_export_height() as u32;
         let codec_str = app.get_export_codec().to_string();
@@ -3538,11 +3613,9 @@ fn main() -> anyhow::Result<()> {
         let blend = app.get_blend_width();
         let start_secs = app.get_export_start_secs();
         let end_secs = app.get_export_end_secs();
-        log::info!("Export range: start={start_secs:.1}s, end={end_secs:.1}s");
         let autocam_enabled = app.get_export_autocam_enabled();
         let model_path = app.get_export_model_path().to_string();
         let tracking_mode = app.get_export_tracking_mode().to_string();
-
         let detection_interval = app.get_export_detection_interval() as u32;
         let replay_enabled = app.get_export_replay_enabled();
         let events_enabled = app.get_export_events_enabled();
@@ -3551,6 +3624,30 @@ fn main() -> anyhow::Result<()> {
         } else {
             None
         };
+
+        // Log all export settings for debugging
+        log::info!("╔════════════════════════════════════════════════════════════╗");
+        log::info!("║ EXPORT STARTED                                             ║");
+        log::info!("╠════════════════════════════════════════════════════════════╣");
+        log::info!("║ OUTPUT FILE: {}", output_str);
+        log::info!("║ Left input:  {}", left_path.display());
+        log::info!("║ Right input: {}", right_path.display());
+        log::info!("╠════════════════════════════════════════════════════════════╣");
+        log::info!("║ RESOLUTION: {}x{}", width, height);
+        log::info!("║ Codec:      {} (Quality: {})", codec_str, quality_str);
+        log::info!("║ Blend width: {:.2}", blend);
+        log::info!("║ Replay:     {}", if replay_enabled { "YES" } else { "NO" });
+        log::info!("║ Events log: {}", if events_enabled { "YES" } else { "NO" });
+        log::info!("╠════════════════════════════════════════════════════════════╣");
+        log::info!("║ PROCESSING RANGE");
+        log::info!("║ Start: {:.2}s  End: {:.2}s", start_secs, end_secs);
+        log::info!("╠════════════════════════════════════════════════════════════╣");
+        log::info!("║ AI TRACKING");
+        log::info!("║ Autocam:     {}", if autocam_enabled { "ENABLED" } else { "DISABLED" });
+        log::info!("║ Tracking:    {}", tracking_mode);
+        log::info!("║ Detection:   every {} frames", detection_interval);
+        log::info!("║ Model:       {}", model_path);
+        log::info!("╚════════════════════════════════════════════════════════════╝");
 
         // Persist the user's codec / quality / blend / tracking-mode / autocam choices
         // as the defaults for next session. Model path is saved in the
@@ -3795,6 +3892,125 @@ fn main() -> anyhow::Result<()> {
         app.set_export_frames_total(0);
         app.set_export_status_text("Exporting video…".into());
         app.set_export_error_text("".into());
+    });
+
+    // YOLO detection callback
+    let state_ref = Rc::clone(&state);
+    let app_weak = app.as_weak();
+    app.on_start_yolo_detection(move |video_source, frame_interval_str, model_path| {
+        let Some(app) = app_weak.upgrade() else {
+            return;
+        };
+        let mut s = state_ref.borrow_mut();
+
+        // Parse frame interval
+        let frame_interval: u32 = frame_interval_str.parse().unwrap_or(30);
+
+        // Get video path based on source
+        let video_path = if video_source == "left" {
+            s.left_path.clone()
+        } else {
+            s.right_path.clone()
+        };
+
+        let Some(video_path) = video_path else {
+            log::error!("No {} video loaded", video_source);
+            app.set_export_status_text(format!("No {} video loaded", video_source).into());
+            return;
+        };
+
+        // Determine model path - use yolo26n.onnx by default (best detection quality)
+        let model_path_buf = if model_path.is_empty() {
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+                .join("yolo26n.onnx")
+        } else {
+            std::path::PathBuf::from(&model_path)
+        };
+
+        // Create output directory
+        let output_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+            .join("detection_output");
+
+        if let Err(e) = std::fs::create_dir_all(&output_dir) {
+            log::error!("Failed to create output directory: {}", e);
+        }
+
+        // Get ROI from calibration if available
+        let roi = s.calibration.as_ref().and_then(|cal| {
+            cal.field_roi.as_ref().map(|field_roi| {
+                detection::RoiPolygon {
+                    points: field_roi
+                        .left
+                        .iter()
+                        .map(|p| (p[0] as f32, p[1] as f32))
+                        .collect(),
+                }
+            })
+        });
+
+        log::info!(
+            "YOLO detection: source={}, interval={}, model={}, roi={}",
+            video_source, frame_interval,
+            model_path_buf.display(),
+            if roi.is_some() { "yes" } else { "no" }
+        );
+
+        // Create detection pipeline
+        let mut pipeline = detection::YoloDetectionPipeline::new(
+            video_path,
+            frame_interval,
+            model_path_buf,
+            output_dir,
+        );
+
+        if let Some(roi_polygon) = roi {
+            pipeline = pipeline.with_roi(roi_polygon);
+        }
+
+        // Update UI status
+        app.set_export_status_text("Starting detection... (frame extraction)".into());
+
+        // Spawn background detection task (blocking)
+        let app_weak_detect = app_weak.clone();
+        std::thread::spawn(move || {
+            match pipeline.run() {
+                Ok(results) => {
+                    log::info!(
+                        "Detection complete: {} total detections in {} clusters",
+                        results.total_detections,
+                        results.clusters.len()
+                    );
+
+                    // Update UI with results
+                    if let Some(app) = app_weak_detect.upgrade() {
+                        let summary = format!(
+                            "✓ Detection complete: {} people in {} clusters",
+                            results.total_detections,
+                            results.clusters.len()
+                        );
+                        app.set_export_status_text(summary.into());
+                        log::info!("Results: {}", results.clusters.len());
+                        for (i, cluster) in results.clusters.iter().enumerate() {
+                            log::info!("  Cluster {}: {} people", i, cluster.size);
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Detection failed: {}", e);
+                    if let Some(app) = app_weak_detect.upgrade() {
+                        app.set_export_status_text(
+                            format!("✗ Detection failed: {}", e).into(),
+                        );
+                    }
+                }
+            }
+        });
     });
 
     let state_ref = Rc::clone(&state);

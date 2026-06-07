@@ -49,9 +49,9 @@ impl Default for RefDirectorConfig {
             red_hue_tolerance: 30.0,
             red_sat_min: 0.70,
             red_val_min: 0.60,
-            position_alpha: 0.015,
-            max_velocity_rad_per_sec: 0.15,
-            velocity_alpha: 0.07,
+            position_alpha: 0.020,
+            max_velocity_rad_per_sec: 0.10,
+            velocity_alpha: 0.05,
             pitch_bias: 0.05,
             fov_alpha: 0.01,
             fov_tight: 22.0,
@@ -62,7 +62,7 @@ impl Default for RefDirectorConfig {
             distance_bias_max: -12.0,
             edge_bias_max: 4.0,
             velocity_fov_bias_max: 10.0,
-            lookahead_frames: 5,
+            lookahead_frames: 0,
         }
     }
 }
@@ -129,19 +129,27 @@ impl RefDirector {
     }
 
     /// Extract ref positions from world state.
-    /// Real refs are detected by their class_id from a custom YOLO model
-    /// or color-based detection.
+    /// Filters for high-confidence, stable tracks (refs are not substituted,
+    /// so they should be consistently detected with high confidence).
+    /// Without a dedicated ref class in the detector or color information,
+    /// we use confidence + age as heuristics.
     fn extract_refs(&self, players: &[TrackedEntity]) -> Vec<RefTrack> {
-        players
+        let mut tracks: Vec<_> = players
             .iter()
-            .filter(|p| !matches!(p.state, TrackState::Lost))
+            .filter(|p| !matches!(p.state, TrackState::Lost) && p.confidence > 0.75 && p.age_frames > 10)
             .map(|p| RefTrack {
                 yaw: p.yaw,
                 pitch: p.pitch,
                 confidence: p.confidence,
                 age: p.age_frames as u32,
             })
-            .collect()
+            .collect();
+
+        // Sort by confidence descending and keep top 3 (typical number of refs on field)
+        tracks.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+        tracks.truncate(3);
+
+        tracks
     }
 
     /// Compute centroid of ref positions (frame refs as a group).
@@ -298,18 +306,22 @@ impl Panner for RefDirector {
             }
 
             if self.frame_index.is_multiple_of(LOG_INTERVAL) {
-                log::debug!(
-                    "RefDirector frame {}: yaw={:.4} pitch={:.4} fov={:.1} refs={} spread={:.3}",
+                log::info!(
+                    "RefDirector frame {}: {} refs detected, yaw={:.4} pitch={:.4} fov={:.1} spread={:.3} vel_yaw={:.4} vel_pitch={:.4}",
                     self.frame_index,
+                    refs.len(),
                     self.yaw,
                     self.pitch,
                     self.current_fov,
-                    refs.len(),
                     spread,
+                    self.velocity_yaw,
+                    self.velocity_pitch,
                 );
             }
         } else {
-            log::trace!("RefDirector: no refs detected this frame");
+            if self.frame_index.is_multiple_of(LOG_INTERVAL) {
+                log::warn!("RefDirector frame {}: no high-confidence stable refs found", self.frame_index);
+            }
         }
 
         ViewportPosition {

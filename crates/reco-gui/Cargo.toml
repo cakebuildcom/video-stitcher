@@ -8,17 +8,25 @@ license.workspace = true
 repository.workspace = true
 description = "Slint-based GUI for Reco panoramic video stitcher"
 
+[lib]
+name = "reco_gui"
+path = "src/lib.rs"
+
 [[bin]]
 name = "reco-gui"
 path = "src/main.rs"
+
+[[bin]]
+name = "test-detection"
+path = "src/bin/test_detection.rs"
 
 [features]
 # Default gives ort CPU detection, matching pre-refactor behavior.
 # Jetson / custom builds opt out via --no-default-features +
 # explicit backend (tensorrt-native, ncnn).
 default = ["autocam", "ort"]
-autocam = ["dep:reco-autocam"]
-ort = ["autocam", "reco-autocam/ort"]
+autocam = ["dep:reco-autocam", "reco-detect/ort"]
+ort = ["dep:ort"]
 tensorrt = ["autocam", "reco-autocam/tensorrt"]
 tensorrt-native = ["autocam", "reco-autocam/tensorrt-native"]
 ncnn = ["autocam", "reco-autocam/ncnn"]
@@ -39,12 +47,16 @@ reco-calibrate = { path = "../reco-calibrate", features = ["io"] }
 reco-detect = { path = "../reco-detect", default-features = false }
 reco-autocam = { path = "../reco-autocam", optional = true, default-features = false }
 
+ort = { version = "2.0.0-rc.12", optional = true }
+ndarray = "0.16"
+
 slint = { version = "~1.15", default-features = false, features = ["std", "backend-winit", "renderer-femtovg-wgpu", "renderer-software", "accessibility", "compat-1-2", "unstable-wgpu-28"] }
 rfd = "0.15"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # M2 tracing migration: tracing-subscriber replaces env_logger.
 # tracing-log bridges legacy `log::*` calls to the tracing pipeline.
 log = "0.4"
+env_logger = "0.11"
 anyhow = "1"
 arboard = "3"
 open = "5"
